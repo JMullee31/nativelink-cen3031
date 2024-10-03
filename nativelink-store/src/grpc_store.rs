@@ -449,8 +449,8 @@ impl GrpcStore {
         &self,
         digest: DigestInfo,
         writer: &mut DropCloserWriteHalf,
-        offset: usize,
-        length: Option<usize>,
+        offset: u64,
+        length: Option<u64>,
     ) -> Result<(), Error> {
         let action_result = self
             .get_action_result_from_digest(digest)
@@ -565,7 +565,8 @@ impl StoreDriver for GrpcStore {
         {
             match missing_digests.binary_search(&digest) {
                 Ok(_) => *result = None,
-                Err(_) => *result = Some(digest.size_bytes()),
+                Err(_) => *result = Some(u64::try_from(digest.size_bytes())?),
+
             }
         }
 

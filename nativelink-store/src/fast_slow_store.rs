@@ -109,7 +109,8 @@ impl FastSlowStore {
     pub fn calculate_range(
         received_range: &Range<u64>,
         send_range: &Range<u64>,
-    ) -> Result<Option<Range<usize>>, Error> {
+    ) -> Option<Range<u64>> {
+
         // Protect against subtraction overflow.
         if received_range.start >= received_range.end {
             return Ok(None);

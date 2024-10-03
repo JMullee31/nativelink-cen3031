@@ -139,7 +139,7 @@ impl CompletenessCheckingStore {
         struct State<'a> {
             results: &'a mut [Option<u64>],
             digests_to_check: Vec<StoreKey<'a>>,
-            digests_to_check_idxs: Vec<usize>,
+            digests_to_check_idxs: Vec<u64>,
             notify: Arc<Notify>,
             done: bool,
         }

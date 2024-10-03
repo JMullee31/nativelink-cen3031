@@ -52,8 +52,8 @@ use crate::cas_utils::is_zero_digest;
 use crate::redis_utils::ft_aggregate;
 
 // TODO(caass): These (and other settings) should be made configurable via nativelink-config.
-pub const READ_CHUNK_SIZE: usize = 64 * 1024;
-const CONNECTION_POOL_SIZE: usize = 3;
+pub const READ_CHUNK_SIZE: u64 = 64 * 1024;
+const CONNECTION_POOL_SIZE: u64 = 3;
 
 fn to_hex(value: &u32) -> String {
     format!("{value:08x}")
@@ -438,7 +438,7 @@ impl StoreDriver for RedisStore {
         // We want to read the data at the key from `offset` to `offset + length`.
         let data_start = offset;
         let data_end = data_start
-            .saturating_add(length.unwrap_or(isize::MAX as usize))
+            .saturating_add(length.unwrap_or(isize::MAX as u64))
             .saturating_sub(1);
 
         // And we don't ever want to read more than `READ_CHUNK_SIZE` bytes at a time, so we'll need to iterate.

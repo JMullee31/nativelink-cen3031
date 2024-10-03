@@ -44,7 +44,7 @@ use tracing::{event, Level};
 use crate::cas_utils::is_zero_digest;
 
 // Default size to allocate memory of the buffer when reading files.
-const DEFAULT_BUFF_SIZE: usize = 32 * 1024;
+const DEFAULT_BUFF_SIZE: u64 = 32 * 1024;
 // Default block size of all major filesystems is 4KB
 const DEFAULT_BLOCK_SIZE: u64 = 4 * 1024;
 
@@ -73,7 +73,7 @@ enum PathType {
 // a lot of needless memeory bloat. There's a high chance we'll end up with a
 // lot of small files, so to prevent storing duplicate data, we store an Arc
 // to the path of the directory where the file is stored and the packed digest.
-// Resulting in usize + sizeof(DigestInfo).
+// Resulting in u64 + sizeof(DigestInfo).
 type FileNameDigest = DigestInfo;
 pub struct EncodedFilePath {
     shared_context: Arc<SharedContext>,
@@ -313,7 +313,7 @@ fn make_temp_digest(digest: &mut DigestInfo) {
 impl LenEntry for FileEntryImpl {
     #[inline]
     fn len(&self) -> u64 {
-        self.size_on_disk()
+        self.size_on_disk() as u64
     }
 
     fn is_empty(&self) -> bool {
@@ -400,7 +400,7 @@ pub fn digest_from_filename(file_name: &str) -> Result<DigestInfo, Error> {
 
 /// The number of files to read the metadata for at the same time when running
 /// add_files_to_cache.
-const SIMULTANEOUS_METADATA_READS: usize = 200;
+const SIMULTANEOUS_METADATA_READS: u64 = 200;
 
 async fn add_files_to_cache<Fe: FileEntry>(
     evicting_map: &EvictingMap<DigestInfo, Arc<Fe>, SystemTime>,
@@ -528,7 +528,7 @@ pub struct FilesystemStore<Fe: FileEntry = FileEntryImpl> {
     #[metric(help = "Block size of the configured filesystem")]
     block_size: u64,
     #[metric(help = "Size of the configured read buffer size")]
-    read_buffer_size: usize,
+    read_buffer_size: u64,
     weak_self: Weak<Self>,
     sleep_fn: fn(Duration) -> Sleep,
     rename_fn: fn(&OsStr, &OsStr) -> Result<(), std::io::Error>,
@@ -577,7 +577,7 @@ impl<Fe: FileEntry> FilesystemStore<Fe> {
         let read_buffer_size = if config.read_buffer_size == 0 {
             DEFAULT_BUFF_SIZE
         } else {
-            config.read_buffer_size as usize
+            config.read_buffer_size as u64
         };
         Ok(Arc::new_cyclic(|weak_self| Self {
             shared_context,
@@ -849,12 +849,15 @@ impl<Fe: FileEntry> StoreDriver for FilesystemStore<Fe> {
             return Ok(());
         }
 
-        let entry =
-            self.evicting_map.get(&digest).await.ok_or_else(|| {
-                make_err!(Code::NotFound, "{digest} not found in filesystem store")
-            })?;
-        let read_limit = length.unwrap_or(u64::MAX);
-        let mut resumeable_temp_file = entry.read_file_part(offset, read_limit).await?;
+        let entry = self.evicting_map.get(&digest).await.ok_or_else(|| {
+            make_err!(
+                Code::NotFound,
+                "{} not found in filesystem store",
+                digest.hash_str()
+            )
+        })?;
+        let read_limit = length.unwrap_or(u64::MAX) as u64;
+        let mut resumeable_temp_file = entry.read_file_part(offset as u64, read_limit).await?;
 
         loop {
             let mut buf = BytesMut::with_capacity(self.read_buffer_size);

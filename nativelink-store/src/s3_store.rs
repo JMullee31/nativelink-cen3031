@@ -74,15 +74,15 @@ const MAX_MULTIPART_SIZE: u64 = 5 * 1024 * 1024 * 1024; // 5GB.
 
 // S3 parts cannot be more than this number. See:
 // https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html
-const MAX_UPLOAD_PARTS: usize = 10_000;
+const MAX_UPLOAD_PARTS: u64 = 10_000;
 
 // Default max buffer size for retrying upload requests.
 // Note: If you change this, adjust the docs in the config.
-const DEFAULT_MAX_RETRY_BUFFER_PER_REQUEST: usize = 5 * 1024 * 1024; // 5MB.
+const DEFAULT_MAX_RETRY_BUFFER_PER_REQUEST: u64 = 5 * 1024 * 1024; // 5MB.
 
 // Default limit for concurrent part uploads per multipart upload.
 // Note: If you change this, adjust the docs in the config.
-const DEFAULT_MULTIPART_MAX_CONCURRENT_UPLOADS: usize = 10;
+const DEFAULT_MULTIPART_MAX_CONCURRENT_UPLOADS: u64 = 10;
 
 pub struct ConnectionWithPermit<T: Connection + AsyncRead + AsyncWrite + Unpin> {
     connection: T,
@@ -112,7 +112,7 @@ impl<T: Connection + AsyncWrite + AsyncRead + Unpin> AsyncWrite for ConnectionWi
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> Poll<Result<usize, tokio::io::Error>> {
+    ) -> Poll<Result<u64, tokio::io::Error>> {
         Pin::new(&mut Pin::get_mut(self).connection).poll_write(cx, buf)
     }
 
@@ -250,9 +250,9 @@ pub struct S3Store<NowFn> {
     #[metric(help = "The number of seconds to consider an object expired")]
     consider_expired_after_s: i64,
     #[metric(help = "The number of bytes to buffer for retrying requests")]
-    max_retry_buffer_per_request: usize,
+    max_retry_buffer_per_request: u64,
     #[metric(help = "The number of concurrent uploads allowed for multipart uploads")]
-    multipart_max_concurrent_uploads: usize,
+    multipart_max_concurrent_uploads: u64,
 }
 
 impl<I, NowFn> S3Store<NowFn>
@@ -701,7 +701,9 @@ where
                     .key(s3_path)
                     .range(format!(
                         "bytes={}-{}",
-                        offset + writer.get_bytes_written(),
+
+                        offset + writer.get_bytes_written() as u64,
+
                         end_read_byte.map_or_else(String::new, |v| v.to_string())
                     ))
                     .send()

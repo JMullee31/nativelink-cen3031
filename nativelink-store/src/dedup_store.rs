@@ -37,7 +37,8 @@ use tracing::{event, Level};
 const DEFAULT_MIN_SIZE: u64 = 64 * 1024;
 const DEFAULT_NORM_SIZE: u64 = 256 * 1024;
 const DEFAULT_MAX_SIZE: u64 = 512 * 1024;
-const DEFAULT_MAX_CONCURRENT_FETCH_PER_GET: usize = 10;
+const DEFAULT_MAX_CONCURRENT_FETCH_PER_GET: u64 = 10;
+
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Default, Clone)]
 pub struct DedupIndex {
@@ -52,7 +53,7 @@ pub struct DedupStore {
     content_store: Store,
     fast_cdc_decoder: FastCDC,
     #[metric(help = "Maximum number of concurrent fetches per get")]
-    max_concurrent_fetch_per_get: usize,
+    max_concurrent_fetch_per_get: u64,
     bincode_options: WithOtherIntEncoding<DefaultOptions, FixintEncoding>,
 }
 
@@ -80,7 +81,7 @@ impl DedupStore {
         let max_concurrent_fetch_per_get = if config.max_concurrent_fetch_per_get == 0 {
             DEFAULT_MAX_CONCURRENT_FETCH_PER_GET
         } else {
-            config.max_concurrent_fetch_per_get as usize
+            config.max_concurrent_fetch_per_get as u64
         };
         Ok(Arc::new(Self {
             index_store,
@@ -269,7 +270,8 @@ impl StoreDriver for DedupStore {
                 let mut entries = Vec::with_capacity(index_entries.entries.len());
                 for entry in index_entries.entries {
                     let first_byte = current_entries_sum;
-                    let entry_size = entry.size_bytes();
+                    let entry_size = u64::try_from(entry.size_bytes())
+                        .err_tip(|| "Failed to convert to u64 in DedupStore")?;
                     current_entries_sum += entry_size;
                     // Filter any items who's end byte is before the first requested byte.
                     if current_entries_sum <= offset {
@@ -312,10 +314,8 @@ impl StoreDriver for DedupStore {
         // In the event any of these error, we will abort early and abandon all the rest of the
         // streamed data.
         // Note: Need to take special care to ensure we send the proper slice of data requested.
-        let mut bytes_to_skip = usize::try_from(offset - start_byte_in_stream)
-            .err_tip(|| "Could not convert (offset - start_byte_in_stream) to usize")?;
-        let mut bytes_to_send = usize::try_from(length.unwrap_or(u64::MAX - offset))
-            .err_tip(|| "Could not convert length to usize")?;
+        let mut bytes_to_skip = offset - start_byte_in_stream;
+        let mut bytes_to_send = length.unwrap_or(u64::MAX - offset);
         while let Some(result) = entries_stream.next().await {
             let mut data = result.err_tip(|| "Inner store iterator closed early in DedupStore")?;
             assert!(

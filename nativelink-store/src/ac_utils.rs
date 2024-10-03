@@ -29,12 +29,12 @@ use prost::Message;
 
 // NOTE(blaise.bruer) From some local testing it looks like action cache items are rarely greater than
 // 1.2k. Giving a bit more just in case to reduce allocs.
-pub const ESTIMATED_DIGEST_SIZE: usize = 2048;
+pub const ESTIMATED_DIGEST_SIZE: u64 = 2048;
 
 /// This is more of a safety check. We are going to collect this entire message
 /// into memory. If we don't bound the max size of the object we enable users
 /// to use up all the memory on this machine.
-const MAX_ACTION_MSG_SIZE: usize = 10 << 20; // 10mb.
+const MAX_ACTION_MSG_SIZE: u64 = 10 << 20; // 10mb.
 
 /// Attempts to fetch the digest contents from a store into the associated proto.
 pub async fn get_and_decode_digest<T: Message + Default + 'static>(

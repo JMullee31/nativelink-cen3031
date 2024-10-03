@@ -41,7 +41,7 @@ impl Debug for BytesWrapper {
 impl LenEntry for BytesWrapper {
     #[inline]
     fn len(&self) -> u64 {
-        Bytes::len(&self.0) as u64
+        Bytes::len(&self.0)
     }
 
     #[inline]
@@ -49,6 +49,77 @@ impl LenEntry for BytesWrapper {
         Bytes::is_empty(&self.0)
     }
 }
+
+/// A subscription to a key in the MemoryStore.
+struct MemoryStoreSubscription {
+    store: Weak<MemoryStore>,
+    key: StoreKey<'static>,
+    receiver: Option<watch::Receiver<Result<Arc<dyn StoreSubscriptionItem>, Error>>>,
+}
+
+#[async_trait]
+impl StoreSubscription for MemoryStoreSubscription {
+    fn peek(&self) -> Result<Arc<dyn StoreSubscriptionItem>, Error> {
+        self.receiver.as_ref().unwrap().borrow().clone()
+    }
+
+    async fn changed(&mut self) -> Result<Arc<dyn StoreSubscriptionItem>, Error> {
+        self.receiver
+            .as_mut()
+            .unwrap()
+            .changed()
+            .await
+            .map_err(|e| {
+                make_err!(
+                    Code::Internal,
+                    "Sender dropped in DefaultStoreSubscription::changed - {e:?}"
+                )
+            })?;
+        self.receiver.as_ref().unwrap().borrow().clone()
+    }
+}
+
+/// When the subscription is dropped, we need to remove the subscription from the store
+/// to prevent memory leaks.
+impl Drop for MemoryStoreSubscription {
+    fn drop(&mut self) {
+        // Make sure we manually drop receiver first.
+        self.receiver = None;
+        let Some(store) = self.store.upgrade() else {
+            return;
+        };
+        store.remove_dropped_subscription(self.key.borrow().into_owned());
+    }
+}
+
+struct MemoryStoreSubscriptionItem {
+    store: Weak<MemoryStore>,
+    key: StoreKey<'static>,
+}
+
+#[async_trait]
+impl StoreSubscriptionItem for MemoryStoreSubscriptionItem {
+    async fn get_key<'a>(&'a self) -> Result<StoreKey<'a>, Error> {
+        Ok(self.key.borrow())
+    }
+
+    async fn get_part(
+        &self,
+        writer: &mut DropCloserWriteHalf,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<(), Error> {
+        let store = self
+            .store
+            .upgrade()
+            .err_tip(|| "Store dropped in MemoryStoreSubscriptionItem::get_part")?;
+        Pin::new(store.as_ref())
+            .get_part(self.key.borrow(), writer, offset, length)
+            .await
+    }
+}
+
+type SubscriptionSender = watch::Sender<Result<Arc<dyn StoreSubscriptionItem>, Error>>;
 
 #[derive(MetricsComponent)]
 pub struct MemoryStore {
@@ -67,7 +138,7 @@ impl MemoryStore {
 
     /// Returns the number of key-value pairs that are currently in the the cache.
     /// Function is not for production code paths.
-    pub async fn len_for_test(&self) -> usize {
+    pub async fn len_for_test(&self) -> u64 {
         self.evicting_map.len_for_test().await
     }
 
